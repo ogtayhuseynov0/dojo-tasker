@@ -1,0 +1,599 @@
+openapi: 3.0.0
+info:
+  title: Mindojo Task Manager API
+  description: Google Apps Script API for AI-first task management with Custom GPT
+  version: 1.0.0
+servers:
+  - url: https://script.google.com/macros/s/{DEPLOYMENT_ID}/exec
+    description: Google Apps Script deployment (REPLACE {DEPLOYMENT_ID} with your actual deployment ID)
+    variables:
+      DEPLOYMENT_ID:
+        default: YOUR_DEPLOYMENT_ID_HERE
+        description: Replace with actual deployment ID after deploying Google Apps Script
+
+paths:
+  /?action=health:
+    get:
+      operationId: healthCheck
+      summary: Check API health and connectivity
+      description: Returns API status, current timestamp, and version
+      responses:
+        '200':
+          description: API is healthy and accessible
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  timestamp:
+                    type: string
+                    format: date-time
+                    example: '2026-02-01T10:30:00.000Z'
+                  version:
+                    type: string
+                    example: '1.0.0'
+
+  /?action=tasks:
+    get:
+      operationId: listTasks
+      summary: List tasks with optional filters
+      description: Retrieve all tasks matching the specified filters (status, context)
+      parameters:
+        - name: status
+          in: query
+          description: Filter by task status
+          schema:
+            type: string
+            enum: [pending, completed, archived]
+            default: pending
+        - name: context
+          in: query
+          description: Filter by context tag (e.g., weekday, morning, work, personal)
+          schema:
+            type: string
+        - name: timezone
+          in: query
+          required: true
+          description: IANA timezone (e.g., America/New_York, Europe/London, UTC)
+          schema:
+            type: string
+            example: America/New_York
+      responses:
+        '200':
+          description: List of tasks matching filters
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tasks:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Task'
+                  count:
+                    type: integer
+                    example: 5
+                  filters_applied:
+                    type: object
+                    properties:
+                      status:
+                        type: string
+                      context:
+                        type: string
+        '400':
+          description: Invalid parameters (e.g., invalid timezone)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    post:
+      operationId: createTask
+      summary: Create a new task
+      description: Add a new task to the system with specified properties
+      parameters:
+        - name: action
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [tasks]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTaskRequest'
+      responses:
+        '201':
+          description: Task created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  task:
+                    $ref: '#/components/schemas/Task'
+        '400':
+          description: Validation error (e.g., missing title, invalid date range)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /?action=tasks/next:
+    get:
+      operationId: getNextTask
+      summary: Get best task for right now with scoring
+      description: Returns the highest-priority task based on context, due date, priority, and duration. Includes detailed scoring breakdown for transparency.
+      parameters:
+        - name: timezone
+          in: query
+          required: true
+          description: IANA timezone for context detection
+          schema:
+            type: string
+            example: America/New_York
+        - name: current_time
+          in: query
+          description: ISO timestamp for testing (defaults to now if not provided)
+          schema:
+            type: string
+            format: date-time
+            example: '2026-02-01T09:00:00Z'
+        - name: context_hint
+          in: query
+          description: Optional context hint to override auto-detection
+          schema:
+            type: string
+            enum: [morning, afternoon, weekday, weekend]
+      responses:
+        '200':
+          description: Best task with scoring breakdown
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NextTaskResponse'
+        '404':
+          description: No eligible tasks available (all filtered out)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: No tasks available
+                  reason:
+                    type: string
+                    example: all_filtered
+                  filtered_out:
+                    type: object
+                    properties:
+                      snoozed:
+                        type: integer
+                      not_yet_active:
+                        type: integer
+                      context_mismatch:
+                        type: integer
+
+  /?action=tasks/{id}:
+    post:
+      operationId: updateTask
+      summary: Update task by ID (partial updates allowed)
+      description: Modify one or more properties of an existing task
+      parameters:
+        - name: action
+          in: query
+          required: true
+          description: Format should be 'tasks/{task_id}' where {task_id} is the actual task ID
+          schema:
+            type: string
+            example: tasks/task_abc123
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTaskRequest'
+      responses:
+        '200':
+          description: Task updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  task:
+                    $ref: '#/components/schemas/Task'
+        '404':
+          description: Task not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /?action=tasks/{id}/complete:
+    post:
+      operationId: completeTask
+      summary: Mark task as completed (handles recurrence automatically)
+      description: Complete a task. If task is recurring (daily/weekly/monthly), automatically creates the next occurrence.
+      parameters:
+        - name: action
+          in: query
+          required: true
+          description: Format should be 'tasks/{task_id}/complete'
+          schema:
+            type: string
+            example: tasks/task_abc123/complete
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                timezone:
+                  type: string
+                  description: IANA timezone
+                  example: America/New_York
+                completion_time:
+                  type: string
+                  format: date-time
+                  description: Optional completion timestamp (defaults to now)
+              required:
+                - timezone
+      responses:
+        '200':
+          description: Task completed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompleteTaskResponse'
+        '404':
+          description: Task not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /?action=tasks/{id}/snooze:
+    post:
+      operationId: snoozeTask
+      summary: Snooze task until specific time
+      description: Hide task until specified timestamp. Task will reappear in eligible tasks after snooze_until time passes.
+      parameters:
+        - name: action
+          in: query
+          required: true
+          description: Format should be 'tasks/{task_id}/snooze'
+          schema:
+            type: string
+            example: tasks/task_abc123/snooze
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                snooze_until:
+                  type: string
+                  format: date-time
+                  description: ISO timestamp when task should reappear
+                  example: '2026-02-01T15:00:00Z'
+                timezone:
+                  type: string
+                  description: IANA timezone
+                  example: America/New_York
+              required:
+                - snooze_until
+                - timezone
+      responses:
+        '200':
+          description: Task snoozed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  task:
+                    $ref: '#/components/schemas/Task'
+        '400':
+          description: Invalid snooze time (e.g., past timestamp) or completed task
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Task not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  schemas:
+    Task:
+      type: object
+      description: A task object with all properties
+      properties:
+        id:
+          type: string
+          description: Unique task identifier
+          example: task_abc123
+        title:
+          type: string
+          description: Task title (1-200 characters)
+          example: Review Q1 report
+        description:
+          type: string
+          description: Optional task description
+          example: Focus on revenue and growth metrics
+          nullable: true
+        status:
+          type: string
+          description: Current task status
+          enum: [pending, completed, archived]
+          example: pending
+        priority:
+          type: string
+          description: Task priority level
+          enum: [high, medium, low]
+          example: high
+        estimated_duration_minutes:
+          type: integer
+          description: Estimated time to complete (in minutes)
+          example: 60
+          minimum: 1
+        start_date:
+          type: string
+          format: date
+          description: Date when task becomes active
+          example: '2026-02-01'
+          nullable: true
+        due_date:
+          type: string
+          format: date
+          description: Task deadline
+          example: '2026-02-05'
+          nullable: true
+        context_tags:
+          type: array
+          description: Context tags for filtering (weekday, weekend, morning, afternoon, work, personal)
+          items:
+            type: string
+          example: [weekday, work]
+        recurrence_rule:
+          type: string
+          description: Recurrence pattern
+          enum: [daily, weekly, monthly]
+          nullable: true
+          example: daily
+        recurrence_anchor:
+          type: string
+          format: date
+          description: Original due date for recurrence calculation
+          nullable: true
+        snooze_until:
+          type: string
+          format: date-time
+          description: Timestamp when snoozed task reappears
+          nullable: true
+          example: '2026-02-01T15:00:00Z'
+        completed_at:
+          type: string
+          format: date-time
+          description: Completion timestamp
+          nullable: true
+          example: '2026-02-01T10:30:00Z'
+        created_at:
+          type: string
+          format: date-time
+          description: Creation timestamp
+          example: '2026-01-28T08:00:00Z'
+        updated_at:
+          type: string
+          format: date-time
+          description: Last update timestamp
+          example: '2026-02-01T09:15:00Z'
+
+    CreateTaskRequest:
+      type: object
+      description: Request body for creating a new task
+      required:
+        - title
+        - timezone
+      properties:
+        title:
+          type: string
+          description: Task title
+          minLength: 1
+          maxLength: 200
+          example: Review Q1 report
+        description:
+          type: string
+          description: Optional task description
+          example: Focus on revenue section
+        priority:
+          type: string
+          description: Task priority
+          enum: [high, medium, low]
+          default: medium
+          example: high
+        estimated_duration_minutes:
+          type: integer
+          description: Estimated duration in minutes
+          minimum: 1
+          default: 30
+          example: 60
+        start_date:
+          type: string
+          format: date
+          description: When task becomes active
+          example: '2026-02-01'
+        due_date:
+          type: string
+          format: date
+          description: Task deadline
+          example: '2026-02-05'
+        context_tags:
+          type: array
+          description: Context tags for filtering
+          items:
+            type: string
+          example: [weekday, work]
+        recurrence_rule:
+          type: string
+          description: Recurrence pattern
+          enum: [daily, weekly, monthly]
+          example: daily
+        timezone:
+          type: string
+          description: IANA timezone
+          example: America/New_York
+
+    UpdateTaskRequest:
+      type: object
+      description: Request body for updating a task (partial updates allowed)
+      required:
+        - timezone
+      properties:
+        title:
+          type: string
+          description: Updated task title
+          minLength: 1
+          maxLength: 200
+        description:
+          type: string
+          description: Updated description
+        priority:
+          type: string
+          enum: [high, medium, low]
+        estimated_duration_minutes:
+          type: integer
+          minimum: 1
+        start_date:
+          type: string
+          format: date
+        due_date:
+          type: string
+          format: date
+        context_tags:
+          type: array
+          items:
+            type: string
+        recurrence_rule:
+          type: string
+          enum: [daily, weekly, monthly]
+        timezone:
+          type: string
+          description: IANA timezone
+          example: America/New_York
+
+    NextTaskResponse:
+      type: object
+      description: Response for GET /tasks/next with scoring breakdown
+      properties:
+        task:
+          $ref: '#/components/schemas/Task'
+        score:
+          type: integer
+          description: Total score (0-100)
+          example: 85
+        scoring_breakdown:
+          type: object
+          description: Detailed scoring explanation
+          properties:
+            due_date_score:
+              type: integer
+              description: Score from due date urgency (0-50)
+              example: 40
+            due_date_explanation:
+              type: string
+              example: Due in 2 days
+            priority_score:
+              type: integer
+              description: Score from priority level (0-30)
+              example: 30
+            priority_explanation:
+              type: string
+              example: High priority
+            duration_score:
+              type: integer
+              description: Score from estimated duration (0-20)
+              example: 15
+            duration_explanation:
+              type: string
+              example: 60 min task (medium length)
+            total:
+              type: integer
+              description: Sum of all scores
+              example: 85
+        context:
+          type: object
+          description: Current context information
+          properties:
+            current_time_local:
+              type: string
+              description: Current time in user's timezone
+            is_weekday:
+              type: boolean
+              example: true
+            is_morning:
+              type: boolean
+              example: true
+            eligible_tasks_count:
+              type: integer
+              description: Number of tasks eligible for scoring
+              example: 5
+            filtered_out:
+              type: object
+              description: Count of filtered tasks by reason
+              properties:
+                snoozed:
+                  type: integer
+                not_yet_active:
+                  type: integer
+                context_mismatch:
+                  type: integer
+
+    CompleteTaskResponse:
+      type: object
+      description: Response for completing a task
+      properties:
+        task:
+          $ref: '#/components/schemas/Task'
+        recurrence_created:
+          type: boolean
+          description: Whether next occurrence was created for recurring task
+          example: true
+        next_task:
+          $ref: '#/components/schemas/Task'
+          nullable: true
+          description: Next occurrence (if recurring task)
+
+    Error:
+      type: object
+      description: Error response
+      properties:
+        error:
+          type: boolean
+          example: true
+        message:
+          type: string
+          description: Human-readable error message
+          example: Invalid timezone
+        statusCode:
+          type: integer
+          description: HTTP status code
+          example: 400

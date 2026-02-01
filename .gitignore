@@ -1,0 +1,120 @@
+# Mindojo Task Manager .gitignore
+
+# Google Apps Script files (managed in Apps Script editor)
+*.gs.json
+.clasp.json
+
+# Environment files with sensitive data
+.env
+.env.local
+.env.production
+config.json
+secrets.json
+
+# API keys and deployment URLs
+deployment-urls.txt
+api-keys.txt
+
+# Google Sheets export files
+*.xlsx
+*.csv
+tasks-export.json
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Thumbnails
+._*
+
+# Files that might appear in the root of a volume
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Directories potentially created on remote AFP share
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# Editor directories and files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.bak
+*.tmp
+
+# Node.js (if you add any build tools later)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+
+# Logs
+logs/
+*.log
+
+# Testing artifacts
+test-results/
+coverage/
+.nyc_output/
+
+# Temporary files
+temp/
+tmp/
+*.tmp
+
+# Custom GPT export files (may contain deployment URLs)
+gpt-export.json
+gpt-config-backup.json
+
+# Screen recordings (large files)
+*.mp4
+*.mov
+*.avi
+*.webm
+screen-recording-*.mp4
+
+# Backup files
+backup/
+*.backup
+
+# Don't ignore these important files
+!README.md
+!Code.gs
+!openapi.yaml
+!test-data.md
+!.gitignore
