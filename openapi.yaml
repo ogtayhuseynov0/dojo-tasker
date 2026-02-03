@@ -1,15 +1,11 @@
-openapi: 3.0.0
+openapi: 3.1.0
 info:
   title: Mindojo Task Manager API
   description: Google Apps Script API for AI-first task management with Custom GPT
   version: 1.0.0
 servers:
-  - url: https://script.google.com/macros/s/{DEPLOYMENT_ID}/exec
-    description: Google Apps Script deployment (REPLACE {DEPLOYMENT_ID} with your actual deployment ID)
-    variables:
-      DEPLOYMENT_ID:
-        default: YOUR_DEPLOYMENT_ID_HERE
-        description: Replace with actual deployment ID after deploying Google Apps Script
+  - url: https://script.google.com/macros/s/AKfycbxbERO4mYRA2V_ag6_a1kzzugj9J0i3fNoJ3m116e0n4IhP7OMGNOrTb0bag8cQTM0U/exec
+    description: Google Apps Script deployment
 
 paths:
   /?action=health:
@@ -40,7 +36,7 @@ paths:
     get:
       operationId: listTasks
       summary: List tasks with optional filters
-      description: Retrieve all tasks matching the specified filters (status, context)
+      description: Retrieve tasks matching the specified filters (status, context). Limited to 20 tasks by default.
       parameters:
         - name: status
           in: query
@@ -54,6 +50,14 @@ paths:
           description: Filter by context tag (e.g., weekday, morning, work, personal)
           schema:
             type: string
+        - name: limit
+          in: query
+          description: Maximum number of tasks to return (default 5, max 10)
+          schema:
+            type: integer
+            default: 5
+            minimum: 1
+            maximum: 10
         - name: timezone
           in: query
           required: true
@@ -63,7 +67,7 @@ paths:
             example: America/New_York
       responses:
         '200':
-          description: List of tasks matching filters
+          description: List of tasks matching filters (minimal format, max 5 tasks by default)
           content:
             application/json:
               schema:
@@ -71,18 +75,34 @@ paths:
                 properties:
                   tasks:
                     type: array
+                    description: Minimal task objects (only essential fields)
                     items:
-                      $ref: '#/components/schemas/Task'
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          description: Task ID
+                        title:
+                          type: string
+                          description: Task title
+                        priority:
+                          type: string
+                          description: high/medium/low
+                        due_date:
+                          type: string
+                          description: Due date (YYYY-MM-DD)
+                        duration_min:
+                          type: integer
+                          description: Duration in minutes (only if not 30)
+                        tags:
+                          type: array
+                          description: Context tags (only if present)
+                          items:
+                            type: string
                   count:
                     type: integer
+                    description: Number of tasks returned
                     example: 5
-                  filters_applied:
-                    type: object
-                    properties:
-                      status:
-                        type: string
-                      context:
-                        type: string
         '400':
           description: Invalid parameters (e.g., invalid timezone)
           content:

@@ -392,6 +392,7 @@ function getTasks(params) {
     var statusFilter = params.status || 'pending';
     var contextFilter = params.context || null;
     var currentTime = params.current_time ? new Date(params.current_time) : new Date();
+    var limit = params.limit ? parseInt(params.limit) : 5; // Default limit 5 tasks for ChatGPT
 
     // Get all tasks
     var allTasks = getAllTasksFromSheet();
@@ -408,16 +409,37 @@ function getTasks(params) {
       });
     }
 
-    // Serialize tasks
-    var serialized = filtered.map(serializeTask);
+    // Limit results (prevent response too large error)
+    var totalCount = filtered.length;
+    if (filtered.length > limit) {
+      filtered = filtered.slice(0, limit);
+    }
+
+    // Serialize tasks with minimal format for GPT (reduce response size)
+    var serialized = filtered.map(function(task) {
+      var minimal = {
+        id: task.id,
+        title: task.title,
+        priority: task.priority
+      };
+
+      // Only include fields if they have values
+      if (task.due_date) {
+        minimal.due_date = toISODate(task.due_date);
+      }
+      if (task.estimated_duration_minutes && task.estimated_duration_minutes !== 30) {
+        minimal.duration_min = task.estimated_duration_minutes;
+      }
+      if (task.context_tags && task.context_tags.length > 0) {
+        minimal.tags = task.context_tags;
+      }
+
+      return minimal;
+    });
 
     return respondJson({
       tasks: serialized,
-      count: serialized.length,
-      filters_applied: {
-        status: statusFilter,
-        context: contextFilter
-      }
+      count: serialized.length
     });
   } catch (err) {
     return respondError(err.message, 400);
