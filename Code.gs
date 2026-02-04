@@ -392,7 +392,7 @@ function getTasks(params) {
     var statusFilter = params.status || 'pending';
     var contextFilter = params.context || null;
     var currentTime = params.current_time ? new Date(params.current_time) : new Date();
-    var limit = params.limit ? parseInt(params.limit) : 5; // Default limit 5 tasks for ChatGPT
+    var limit = params.limit ? parseInt(params.limit) : 1; // Default limit 1 task (GAS headers are huge)
 
     // Get all tasks
     var allTasks = getAllTasksFromSheet();
@@ -415,31 +415,18 @@ function getTasks(params) {
       filtered = filtered.slice(0, limit);
     }
 
-    // Serialize tasks with minimal format for GPT (reduce response size)
+    // Minimal format to reduce total response size (GAS adds huge headers ~3KB)
     var serialized = filtered.map(function(task) {
-      var minimal = {
+      return {
         id: task.id,
         title: task.title,
-        priority: task.priority
+        priority: task.priority,
+        due: task.due_date ? toISODate(task.due_date) : null
       };
-
-      // Only include fields if they have values
-      if (task.due_date) {
-        minimal.due_date = toISODate(task.due_date);
-      }
-      if (task.estimated_duration_minutes && task.estimated_duration_minutes !== 30) {
-        minimal.duration_min = task.estimated_duration_minutes;
-      }
-      if (task.context_tags && task.context_tags.length > 0) {
-        minimal.tags = task.context_tags;
-      }
-
-      return minimal;
     });
 
     return respondJson({
-      tasks: serialized,
-      count: serialized.length
+      tasks: serialized
     });
   } catch (err) {
     return respondError(err.message, 400);
@@ -551,19 +538,16 @@ function getNextTask(params) {
       return b.score - a.score;
     });
 
-    // Return top task
+    // Return ultra-minimal response (GAS headers are ~3KB, need tiny JSON)
     var best = scoredTasks[0];
+    var task = best.task;
     return respondJson({
-      task: serializeTask(best.task),
+      id: task.id,
+      title: task.title,
+      priority: task.priority,
+      due: task.due_date ? toISODate(task.due_date) : null,
       score: best.score,
-      scoring_breakdown: best.breakdown,
-      context: {
-        current_time_local: Utilities.formatDate(currentTime, timezone, "yyyy-MM-dd'T'HH:mm:ssXXX"),
-        is_weekday: isWeekdayNow,
-        is_morning: isMorningNow,
-        eligible_tasks_count: eligibleTasks.length,
-        filtered_out: filterStats
-      }
+      reason: best.breakdown.due_date_explanation + ", " + best.breakdown.priority_explanation
     });
   } catch (err) {
     return respondError(err.message, 400);

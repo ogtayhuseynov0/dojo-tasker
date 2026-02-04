@@ -4,8 +4,8 @@ info:
   description: Google Apps Script API for AI-first task management with Custom GPT
   version: 1.0.0
 servers:
-  - url: https://script.google.com/macros/s/AKfycbxbERO4mYRA2V_ag6_a1kzzugj9J0i3fNoJ3m116e0n4IhP7OMGNOrTb0bag8cQTM0U/exec
-    description: Google Apps Script deployment
+  - url: https://ogtayhuseynov0--48a5168a019b11f1af0042dde27851f2.web.val.run
+    description: Val.town proxy for Google Apps Script (handles 302 redirects)
 
 paths:
   /?action=health:
@@ -147,8 +147,8 @@ paths:
   /?action=tasks/next:
     get:
       operationId: getNextTask
-      summary: Get best task for right now with scoring
-      description: Returns the highest-priority task based on context, due date, priority, and duration. Includes detailed scoring breakdown for transparency.
+      summary: Get best task for right now
+      description: Returns the highest-priority task based on context, due date, priority, and duration. Minimal response format.
       parameters:
         - name: timezone
           in: query
@@ -522,70 +522,33 @@ components:
 
     NextTaskResponse:
       type: object
-      description: Response for GET /tasks/next with scoring breakdown
+      description: Minimal response for GET /tasks/next (reduced size for ChatGPT Actions)
       properties:
-        task:
-          $ref: '#/components/schemas/Task'
+        id:
+          type: string
+          description: Task ID
+          example: task_001
+        title:
+          type: string
+          description: Task title
+          example: Review Q1 report
+        priority:
+          type: string
+          description: Priority level
+          example: high
+        due:
+          type: string
+          description: Due date (YYYY-MM-DD)
+          example: "2026-02-05"
+          nullable: true
         score:
           type: integer
           description: Total score (0-100)
           example: 85
-        scoring_breakdown:
-          type: object
-          description: Detailed scoring explanation
-          properties:
-            due_date_score:
-              type: integer
-              description: Score from due date urgency (0-50)
-              example: 40
-            due_date_explanation:
-              type: string
-              example: Due in 2 days
-            priority_score:
-              type: integer
-              description: Score from priority level (0-30)
-              example: 30
-            priority_explanation:
-              type: string
-              example: High priority
-            duration_score:
-              type: integer
-              description: Score from estimated duration (0-20)
-              example: 15
-            duration_explanation:
-              type: string
-              example: 60 min task (medium length)
-            total:
-              type: integer
-              description: Sum of all scores
-              example: 85
-        context:
-          type: object
-          description: Current context information
-          properties:
-            current_time_local:
-              type: string
-              description: Current time in user's timezone
-            is_weekday:
-              type: boolean
-              example: true
-            is_morning:
-              type: boolean
-              example: true
-            eligible_tasks_count:
-              type: integer
-              description: Number of tasks eligible for scoring
-              example: 5
-            filtered_out:
-              type: object
-              description: Count of filtered tasks by reason
-              properties:
-                snoozed:
-                  type: integer
-                not_yet_active:
-                  type: integer
-                context_mismatch:
-                  type: integer
+        reason:
+          type: string
+          description: Brief scoring explanation
+          example: "Due in 2 days, High priority"
 
     CompleteTaskResponse:
       type: object
