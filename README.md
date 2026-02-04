@@ -14,9 +14,46 @@ An AI-first task manager where a Custom GPT is the primary interface, powered by
 ## Architecture
 
 - **Frontend**: Custom GPT with Actions (natural language interface)
+- **Proxy**: Val.town Edge Function (handles Google Apps Script 302 redirects)
 - **Backend**: Google Apps Script (HTTP API with 7 endpoints)
 - **Database**: Google Sheets (single spreadsheet, 16 columns)
 - **Auth**: None (public test endpoints)
+
+### Architecture Flow
+
+```
+User (Natural Language)
+  ↓
+Custom GPT (ChatGPT with Actions)
+  ↓
+Val.town Proxy (https://ogtayhuseynov0--48a5168a019b11f1af0042dde27851f2.web.val.run)
+  ↓
+Google Apps Script (handles 302 redirect)
+  ↓
+Google Sheets (data store)
+```
+
+### Technical Decision: Why a Proxy?
+
+**Problem**: ChatGPT Actions cannot follow HTTP 302 redirects. Google Apps Script Web Apps always return a 302 redirect before serving the actual response.
+
+**Solution**: Implemented a lightweight Val.town Edge Function that:
+1. Receives requests from ChatGPT Actions
+2. Forwards them to Google Apps Script
+3. Automatically follows the 302 redirect
+4. Returns clean JSON response to ChatGPT
+
+**Trade-offs**:
+- ✅ Minimal latency (~50ms overhead)
+- ✅ Free tier sufficient (Val.town: unlimited requests)
+- ✅ No infrastructure to manage
+- ✅ Stateless and cacheable
+- ⚠️ Adds external dependency (mitigated by Val.town's 99.9% uptime)
+
+**Alternatives Considered**:
+- Google Cloud Functions: More complex setup, requires billing
+- Vercel Edge Functions: Similar complexity to Val.town
+- Direct GAS access: Not possible due to redirect limitation
 
 ## Quick Start
 
