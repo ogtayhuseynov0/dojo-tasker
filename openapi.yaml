@@ -32,6 +32,76 @@ paths:
                     type: string
                     example: '1.0.0'
 
+  /?action=analytics:
+    get:
+      operationId: getAnalytics
+      summary: Get task statistics and insights
+      description: Returns aggregated statistics about tasks including counts by status/priority, overdue tasks, and completion metrics
+      parameters:
+        - name: timezone
+          in: query
+          required: true
+          description: IANA timezone for date calculations
+          schema:
+            type: string
+            example: America/New_York
+      responses:
+        '200':
+          description: Task statistics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_tasks:
+                    type: integer
+                    description: Total number of tasks in system
+                    example: 42
+                  by_status:
+                    type: object
+                    description: Task counts by status
+                    properties:
+                      pending:
+                        type: integer
+                        example: 15
+                      completed:
+                        type: integer
+                        example: 25
+                      archived:
+                        type: integer
+                        example: 2
+                  by_priority:
+                    type: object
+                    description: Task counts by priority level
+                    properties:
+                      high:
+                        type: integer
+                        example: 8
+                      medium:
+                        type: integer
+                        example: 20
+                      low:
+                        type: integer
+                        example: 14
+                  overdue_count:
+                    type: integer
+                    description: Number of pending tasks past their due date
+                    example: 3
+                  completed_today:
+                    type: integer
+                    description: Tasks completed today in user's timezone
+                    example: 5
+                  avg_completion_time_minutes:
+                    type: integer
+                    description: Average estimated duration of completed tasks
+                    example: 28
+        '400':
+          description: Invalid parameters (e.g., invalid timezone)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   /?action=tasks:
     get:
       operationId: listTasks

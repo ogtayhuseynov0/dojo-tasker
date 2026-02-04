@@ -9,6 +9,7 @@
  * - GET  /health
  * - GET  /tasks
  * - GET  /tasks/next
+ * - GET  /analytics
  * - POST /tasks
  * - PUT  /tasks/:id
  * - POST /tasks/:id/complete
@@ -51,8 +52,10 @@ function handleRequest(e, method) {
         return getTasks(e.parameter);
       } else if (action === 'tasks/next') {
         return getNextTask(e.parameter);
+      } else if (action === 'analytics') {
+        return getAnalytics(e.parameter);
       } else {
-        return respondError('Unknown action: ' + action, 404);
+        return respondError('Unknown action: ' + action + '. Valid actions: health, tasks, tasks/next, analytics', 404);
       }
     } else if (method === 'POST') {
       // Parse request body
@@ -147,14 +150,14 @@ function respondError(message, statusCode) {
  */
 function parseTimezone(tz) {
   if (!tz) {
-    throw new Error('Timezone is required');
+    throw new Error('Timezone is required. Use IANA format like "America/New_York", "Europe/London", or "UTC". See https://en.wikipedia.org/wiki/List_of_tz_database_time_zones');
   }
   // Basic validation - try to use it
   try {
     Utilities.formatDate(new Date(), tz, 'HH');
     return tz;
   } catch (err) {
-    throw new Error('Invalid timezone: ' + tz);
+    throw new Error('Invalid timezone "' + tz + '". Use IANA format like "America/New_York", "Europe/London", or "UTC". See https://en.wikipedia.org/wiki/List_of_tz_database_time_zones');
   }
 }
 
@@ -639,7 +642,7 @@ function updateTask(taskId, body) {
     // Find task
     var task = findTaskById(taskId);
     if (!task) {
-      return respondError('Task not found: ' + taskId, 404);
+      return respondError('Task "' + taskId + '" not found. Use GET /?action=tasks&timezone=UTC to list available task IDs.', 404);
     }
 
     // Update allowed fields
@@ -722,7 +725,7 @@ function completeTask(taskId, body) {
     // Find task
     var task = findTaskById(taskId);
     if (!task) {
-      return respondError('Task not found: ' + taskId, 404);
+      return respondError('Task "' + taskId + '" not found. Use GET /?action=tasks&timezone=UTC to list available task IDs.', 404);
     }
 
     // Check if already completed (idempotency)
@@ -814,7 +817,7 @@ function snoozeTask(taskId, body) {
     // Find task
     var task = findTaskById(taskId);
     if (!task) {
-      return respondError('Task not found: ' + taskId, 404);
+      return respondError('Task "' + taskId + '" not found. Use GET /?action=tasks&timezone=UTC to list available task IDs.', 404);
     }
 
     // Cannot snooze completed tasks
@@ -834,12 +837,103 @@ function snoozeTask(taskId, body) {
   }
 }
 
+/**
+ * GET /analytics
+ * Get task statistics and insights
+ */
+function getAnalytics(params) {
+  try {
+    var timezone = parseTimezone(params.timezone);
+    var currentTime = new Date();
+
+    // Get all tasks
+    var allTasks = getAllTasksFromSheet();
+
+    // Calculate statistics
+    var stats = {
+      total_tasks: allTasks.length,
+      by_status: {
+        pending: 0,
+        completed: 0,
+        archived: 0
+      },
+      by_priority: {
+        high: 0,
+        medium: 0,
+        low: 0
+      },
+      overdue_count: 0,
+      completed_today: 0,
+      avg_completion_time_minutes: 0
+    };
+
+    var currentDate = new Date(Utilities.formatDate(currentTime, timezone, 'yyyy-MM-dd'));
+    var completionTimes = [];
+
+    for (var i = 0; i < allTasks.length; i++) {
+      var task = allTasks[i];
+
+      // Count by status
+      stats.by_status[task.status] = (stats.by_status[task.status] || 0) + 1;
+
+      // Count by priority
+      stats.by_priority[task.priority] = (stats.by_priority[task.priority] || 0) + 1;
+
+      // Count overdue (pending tasks past due date)
+      if (task.status === 'pending' && task.due_date) {
+        var dueDate = new Date(task.due_date);
+        if (currentDate > dueDate) {
+          stats.overdue_count++;
+        }
+      }
+
+      // Count completed today
+      if (task.completed_at) {
+        var completedDate = new Date(task.completed_at);
+        var completedDateStr = Utilities.formatDate(completedDate, timezone, 'yyyy-MM-dd');
+        var currentDateStr = Utilities.formatDate(currentTime, timezone, 'yyyy-MM-dd');
+
+        if (completedDateStr === currentDateStr) {
+          stats.completed_today++;
+        }
+
+        // Track completion times for average
+        if (task.estimated_duration_minutes) {
+          completionTimes.push(task.estimated_duration_minutes);
+        }
+      }
+    }
+
+    // Calculate average completion time
+    if (completionTimes.length > 0) {
+      var sum = 0;
+      for (var j = 0; j < completionTimes.length; j++) {
+        sum += completionTimes[j];
+      }
+      stats.avg_completion_time_minutes = Math.round(sum / completionTimes.length);
+    }
+
+    return respondJson(stats);
+  } catch (err) {
+    return respondError(err.message, 400);
+  }
+}
+
 // ============================================================================
 // SCORING ALGORITHM
 // ============================================================================
 
 /**
- * Calculate score for a task
+ * Calculate score for a task (0-100 points total)
+ *
+ * Scoring breakdown:
+ * - Due date urgency: 0-50 points (overdue=50, today=45, tomorrow=35, etc.)
+ * - Priority level: 0-30 points (high=30, medium=15, low=5)
+ * - Duration fit: 0-20 points (≤15min=20, ≤30min=15, ≤60min=10, >60min=5)
+ *
+ * Philosophy: Overdue tasks always surface first, then balance importance (priority)
+ * vs effort (duration). Quick wins get slight boost to maintain momentum.
+ *
  * Returns breakdown object with scores and explanations
  */
 function calculateScore(task, currentTime, timezone) {
@@ -851,6 +945,7 @@ function calculateScore(task, currentTime, timezone) {
   var durationExplanation = '';
 
   // 1. Due date score (0-50 points)
+  // Overdue tasks get maximum urgency. Recent deadlines score higher.
   if (!task.due_date) {
     dueScore = 10;
     dueExplanation = 'No deadline set';

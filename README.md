@@ -9,6 +9,7 @@ An AI-first task manager where a Custom GPT is the primary interface, powered by
 - Recurring tasks (daily/weekly/monthly)
 - Task snoozing with timezone support
 - Deterministic scoring algorithm with transparent explanations
+- Task analytics and insights (completion stats, overdue tracking)
 - No authentication (test project only)
 
 ## Architecture
@@ -22,15 +23,61 @@ An AI-first task manager where a Custom GPT is the primary interface, powered by
 ### Architecture Flow
 
 ```
-User (Natural Language)
-  ↓
-Custom GPT (ChatGPT with Actions)
-  ↓
-Val.town Proxy (https://ogtayhuseynov0--48a5168a019b11f1af0042dde27851f2.web.val.run)
-  ↓
-Google Apps Script (handles 302 redirect)
-  ↓
-Google Sheets (data store)
+┌─────────────────────────────────────────────────────────────────┐
+│                         USER INTERACTION                         │
+│  "What should I do next?" / "Add task" / "Mark done" / "Snooze" │
+└────────────────────────────┬────────────────────────────────────┘
+                             ↓
+┌─────────────────────────────────────────────────────────────────┐
+│                    CUSTOM GPT (ChatGPT Actions)                  │
+│  • Parses natural language                                       │
+│  • Extracts task details (title, priority, due date)            │
+│  • Detects user timezone (browser)                              │
+│  • Calls API endpoints via OpenAPI schema                       │
+└────────────────────────────┬────────────────────────────────────┘
+                             ↓
+┌─────────────────────────────────────────────────────────────────┐
+│               VAL.TOWN PROXY (Edge Function)                     │
+│  • Receives ChatGPT requests                                     │
+│  • Forwards to Google Apps Script                               │
+│  • Follows 302 redirects (ChatGPT can't)                        │
+│  • Returns clean JSON                                            │
+│  URL: https://ogtayhuseynov0--48a...dde27851f2.web.val.run      │
+└────────────────────────────┬────────────────────────────────────┘
+                             ↓
+┌─────────────────────────────────────────────────────────────────┐
+│           GOOGLE APPS SCRIPT (Backend API - 8 Endpoints)        │
+│  GET  /health            → Health check                          │
+│  GET  /tasks             → List tasks (filtered)                 │
+│  GET  /tasks/next        → Best task right now (scored 0-100)   │
+│  GET  /analytics         → Task statistics & insights           │
+│  POST /tasks             → Create new task                       │
+│  POST /tasks/:id         → Update task                           │
+│  POST /tasks/:id/complete → Mark done (handles recurrence)      │
+│  POST /tasks/:id/snooze  → Snooze until timestamp               │
+│                                                                  │
+│  SCORING ALGORITHM (Deterministic, 0-100 points):               │
+│  • Due date urgency: 0-50 pts (overdue=50, today=45, etc.)     │
+│  • Priority level: 0-30 pts (high=30, medium=15, low=5)        │
+│  • Duration fit: 0-20 pts (≤15min=20, ≤30min=15, etc.)         │
+└────────────────────────────┬────────────────────────────────────┘
+                             ↓
+┌─────────────────────────────────────────────────────────────────┐
+│                 GOOGLE SHEETS (Database)                         │
+│  Sheet: "Tasks" (16 columns)                                    │
+│  • id, title, description, status, priority                     │
+│  • estimated_duration_minutes, start_date, due_date             │
+│  • context_tags, recurrence_rule, recurrence_anchor             │
+│  • snooze_until, completed_at, created_at, updated_at, notes   │
+└─────────────────────────────────────────────────────────────────┘
+
+DATA FLOW EXAMPLE:
+  User: "What should I do next?"
+    → GPT detects timezone "America/New_York", calls GET /tasks/next
+    → Val.town forwards to GAS (follows redirect)
+    → GAS reads Google Sheets, filters eligible tasks (not snoozed,
+       context matches, active), scores all (0-100), returns best
+    → GPT presents: "Review Q1 report (score: 85, due today, high priority)"
 ```
 
 ### Technical Decision: Why a Proxy?
@@ -109,9 +156,13 @@ Replace `YOUR_DEPLOYMENT_URL` with your actual deployment URL:
 ```bash
 # Test health endpoint
 curl "YOUR_DEPLOYMENT_URL?action=health"
-
 # Expected response:
 # {"status":"ok","timestamp":"2026-02-01T10:30:00.000Z","version":"1.0.0"}
+
+# Test analytics endpoint
+curl "YOUR_DEPLOYMENT_URL?action=analytics&timezone=America/New_York"
+# Expected response:
+# {"total_tasks":7,"by_status":{"pending":5,"completed":2},"by_priority":{"high":3,"medium":3,"low":1},"overdue_count":1,"completed_today":0,"avg_completion_time_minutes":35}
 ```
 
 ### 4. Configure Custom GPT
@@ -175,8 +226,9 @@ See [`test-data.md`](test-data.md) for:
 ```
 mindodo_task/
 ├── README.md                    # This file
+├── PRIVACY.md                   # Privacy policy (required for Custom GPT)
 ├── Code.gs                      # Google Apps Script (full implementation)
-├── openapi.yaml                 # OpenAPI 3.0 schema for GPT Actions
+├── openapi.yaml                 # OpenAPI 3.1 schema for GPT Actions
 ├── test-data.md                 # Test scenarios and sample data
 ├── .gitignore                   # Ignore sensitive files
 └── docs/
@@ -209,6 +261,8 @@ mindodo_task/
 | notes | String | Internal metadata | No |
 
 ## Security & Production Considerations
+
+**Privacy Policy**: See [`PRIVACY.md`](PRIVACY.md) for complete data handling and security information.
 
 ### Current Scope (Demo/Test)
 - ❌ No authentication (public endpoints)
